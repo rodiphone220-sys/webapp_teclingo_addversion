@@ -1425,27 +1425,54 @@ Return the result strictly as a JSON object matching this schema:
 
       const prompt = `Create an interactive English listening scenario set in this context: "${processedScenario}" for a "${targetLevel}" learner.
 Generate a realistic 4-6 exchange dialogue between two speakers (e.g. Speaker A and Speaker B).
-Also provide exactly 5 comprehension questions about details, vocabulary, intent, or context from the dialogue. Include a fillBlank exercise with a sentence containing 2 or 3 placeholders like "[blank]" (e.g., "Yesterday I [blank] to the [blank] and [blank] some fresh vegetables."), corresponding answers, a Spanish comprehension question about that sentence, and 4 Spanish options. Keep it in high-fidelity JSON.`;
+Also provide between 5 and 10 multiple-choice comprehension questions. Include a fillBlank exercise with a sentence containing 2 or 3 placeholders like "[blank]" (e.g., "Yesterday I [blank] to the [blank] and [blank] some fresh vegetables."), corresponding answers, a Spanish comprehension question about that sentence, and 4 Spanish options. Keep it in high-fidelity JSON.`;
 
       // PRIMARY: Groq API for dialogue generation
       try {
-        const systemInstruction = `You are an expert English language content creator for listening comprehension exercises. You MUST output valid JSON only, matching the exact schema specified. Generate realistic, natural dialogues that sound like real conversations. All vocabulary and grammar should be appropriate for the specified CEFR level.`;
+        const systemInstruction = `You are an expert English language training system. Generate high-fidelity interactive listening lab content in JSON format according to the following strict schema:
+{
+  "title": "string (the name of the scenario)",
+  "context": "string (brief context or setting description)",
+  "dialogue": [
+    {
+      "speaker": "string (e.g., Speaker A, Clerk, Engineer)",
+      "text": "string (the spoken line in English)",
+      "spanishTranslation": "string (Spanish translation of this line)"
+    }
+  ],
+  "vocabulary": [
+    {
+      "term": "string (technical term or idiom from the dialogue)",
+      "definition": "string (definition in Spanish)",
+      "example": "string (example sentence using the term in English)"
+    }
+  ],
+  "questions": [
+    {
+      "id": 1,
+      "questionText": "string (multiple-choice comprehension question in English/Spanish, testing listening comprehension)",
+      "options": ["string (option 1)", "string (option 2)", "string (option 3)", "string (option 4)"],
+      "correctOptionIndex": 0,
+      "explanation": "string (explanation of the answer in Spanish)"
+    }
+  ],
+  "fillBlank": {
+    "sentence": "string (An English sentence based on the dialogue with placeholders like '[blank]' representing missing words)",
+    "blanks": ["string (exact correct word 1)", "string (exact correct word 2)"],
+    "question": "string (A Spanish comprehension question based on the sentence)",
+    "options": ["string (option 1)", "string (option 2)", "string (option 3)", "string (option 4)"],
+    "correctOptionIndex": 0
+  }
+}
+Provide exactly 3 vocabulary items, between 5 and 10 multiple-choice comprehension questions (to ensure deep, thorough testing of auditory comprehension, each with 4 options and detailed explanations in Spanish), and exactly 2-3 blanks in the fillBlank.sentence.
+Conform perfectly to the JSON schema. Provide NO other text, markdown blocks, or commentary. Only return a valid JSON object.`;
 
         const chatCompletion = await groq.chat.completions.create({
           messages: [
             { role: "system", content: systemInstruction },
-            { role: "user", content: prompt + `\n\nReturn strictly as a JSON object with this schema:\n{
-  "title": "string",
-  "context": "string (brief setting description)",
-  "dialogue": [{ "speaker": "string", "text": "string", "spanishTranslation": "string" }],
-  "vocabulary": [{ "term": "string", "definition": "string", "example": "string" }],
-  "questions": [{ "id": number, "questionText": "string", "options": ["string"], "correctOptionIndex": number, "explanation": "string" }],
-  "fillBlank": { "sentence": "string", "blanks": ["string"], "question": "string", "options": ["string"], "correctOptionIndex": number }
-}` }
+            { role: "user", content: prompt }
           ],
           model: "llama-3.3-70b-versatile",
-          temperature: 0.7,
-          max_tokens: 4000,
           response_format: { type: "json_object" }
         });
 
@@ -1454,7 +1481,7 @@ Also provide exactly 5 comprehension questions about details, vocabulary, intent
         const parsed = JSON.parse(responseText.trim());
         console.log(`[Listening Lab] Groq parsed keys: ${Object.keys(parsed).join(", ")}`);
         if (parsed && parsed.dialogue && Array.isArray(parsed.dialogue) && parsed.dialogue.length > 0) {
-          console.log(`[Listening Lab] Groq generated dialogue for scenario: "${processedScenario}" (${parsed.dialogue.length} lines)`);
+          console.log(`[Listening Lab] Groq generated dialogue for scenario: "${processedScenario}" (${parsed.dialogue.length} lines, ${(parsed.questions || []).length} questions)`);
           return res.json(parsed);
         }
         console.warn(`[Listening Lab] Groq response missing dialogue array, falling through to Gemini`);
