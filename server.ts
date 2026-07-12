@@ -1425,7 +1425,7 @@ Return the result strictly as a JSON object matching this schema:
 
       const prompt = `Create an interactive English listening scenario set in this context: "${processedScenario}" for a "${targetLevel}" learner.
 Generate a realistic 4-6 exchange dialogue between two speakers (e.g. Speaker A and Speaker B).
-Also provide comprehension questions. Include a fillBlank exercise with a sentence containing 2 or 3 placeholders like "[blank]" (e.g., "Yesterday I [blank] to the [blank] and [blank] some fresh vegetables."), corresponding answers, a Spanish comprehension question about that sentence, and 4 Spanish options. Keep it in high-fidelity JSON.`;
+Also provide exactly 5 comprehension questions about details, vocabulary, intent, or context from the dialogue. Include a fillBlank exercise with a sentence containing 2 or 3 placeholders like "[blank]" (e.g., "Yesterday I [blank] to the [blank] and [blank] some fresh vegetables."), corresponding answers, a Spanish comprehension question about that sentence, and 4 Spanish options. Keep it in high-fidelity JSON.`;
 
       // PRIMARY: Groq API for dialogue generation
       try {
@@ -1632,7 +1632,7 @@ Output strictly as a JSON object matching this schema:
 
 ${dialogueText}
 
-Generate exactly 8 multiple-choice comprehension questions. Each question should test understanding of details, vocabulary, intent, or context from the dialogue.
+Generate exactly 5 multiple-choice comprehension questions. Each question should test understanding of details, vocabulary, intent, or context from the dialogue. Make questions varied: some about specific facts, some about vocabulary meaning, some about speaker intentions.
 
 Output strictly as JSON:
 {
@@ -1658,7 +1658,7 @@ Output strictly as JSON:
         return res.json(JSON.parse(responseText.trim()));
       } catch (groqError: any) {
         console.warn("Questions API Groq failed:", groqError.message || groqError);
-        const fallbackQuestions = dialogue.slice(0, Math.min(8, dialogue.length)).map((d: any, idx: number) => ({
+        const fallbackQuestions = dialogue.slice(0, Math.min(5, dialogue.length)).map((d: any, idx: number) => ({
           question: `¿Qué dijo ${d.speaker} en la línea ${idx + 1}?`,
           options: [
             d.text,
