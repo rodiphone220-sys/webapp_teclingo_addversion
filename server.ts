@@ -1230,9 +1230,27 @@ The JSON response MUST exactly match the following JSON schema:
   // 1b. AI Pronunciation Feedback API (with Integrity Filter)
   app.post("/api/gemini/pronunciation-feedback", async (req, res) => {
     try {
-      const { text, audio, mimeType, spokenText } = req.body;
+      let { text, audio, mimeType, spokenText } = req.body;
       if (!text || text.trim() === "") {
         return res.status(400).json({ error: "Text is required" });
+      }
+
+      // Auto-transcribe with Groq Whisper if spokenText is empty but audio is provided
+      if ((!spokenText || spokenText.trim() === "") && audio && process.env.GROQ_API_KEY) {
+        try {
+          console.log(`[Pronunciation Feedback] No spokenText, transcribing audio with Groq Whisper...`);
+          const audioBuffer = Buffer.from(audio, "base64");
+          const audioFile = new File([audioBuffer], "recording.webm", { type: mimeType || "audio/webm" });
+          const transcription = await groq.audio.transcriptions.create({
+            file: audioFile,
+            model: "whisper-large-v3",
+            language: "en",
+          });
+          spokenText = (transcription as any).text || "";
+          console.log(`[Pronunciation Feedback] Whisper transcription: "${spokenText}"`);
+        } catch (whisperError: any) {
+          console.warn("[Pronunciation Feedback] Whisper transcription failed:", whisperError.message || whisperError);
+        }
       }
 
       // Capa de Transcripción (Filtro de Integridad de Contenido Backend V2.0)
@@ -1683,54 +1701,26 @@ Respond to their last message and evaluate it.`;
         systemInstruction += `\n\n[FICHA TÉCNICA / INFORMACIÓN MASTER DE LA APLICACIÓN TECLINGO]:\n${customAppMasterInfo}`;
       }
 
-      try {
-        const response = await ai.models.generateContent({
-          model: "gemini-3.5-flash",
-          contents: systemInstruction,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                reply: { type: Type.STRING, description: "Your friendly, conversational response to the user in English" },
-                evaluation: {
-                  type: Type.OBJECT,
-                  properties: {
-                    isCorrect: { type: Type.BOOLEAN, description: "True if user's last message has no grammar/spelling errors" },
-                    correctedText: { type: Type.STRING, description: "The fully corrected or polished version of user's last message in English" },
-                    detectedErrors: { type: Type.STRING, description: "A brief label of the errors found, e.g., 'Verb Tense', 'Spelling', or 'Ninguno'" },
-                    explanation: { type: Type.STRING, description: "Polite and helpful grammar explanation or coaching tips in Spanish" },
-                    correctedTextTranslation: { type: Type.STRING, description: "Direct and accurate Spanish translation of the correctedText" }
-                  },
-                  required: ["isCorrect", "correctedText", "detectedErrors", "explanation", "correctedTextTranslation"]
-                },
-                suggestedResponses: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING },
-                  description: "3 short suggested replies in English for the user to choose from"
-                }
-              },
-              required: ["reply", "evaluation", "suggestedResponses"]
-            }
-          }
-        });
+      // PRIMARY: Groq (always works)
+      const formattedContents = messages.map((m: any) => ({
+        role: (m.role === "user" || m.role === "system") ? m.role : "assistant",
+        content: m.content
+      }));
 
-        const responseText = response.text || "{}";
-        return res.json(JSON.parse(responseText.trim()));
-      } catch (geminiError: any) {
-        console.warn("SafeZone Chat API Gemini failed, running Groq Llama fallback:", geminiError.message || geminiError);
-        
-        const formattedContents = messages.map((m: any) => ({
-          role: (m.role === "user" || m.role === "system") ? m.role : "assistant",
-          content: m.content
-        }));
+      if (formattedContents.length === 0) {
+        formattedContents.push({ role: "user", content: "Hello! Let's start our conversation in: " + targetScenario });
+      }
 
-        if (formattedContents.length === 0) {
-          formattedContents.push({ role: "user", content: "Hello! Let's start our conversation in: " + targetScenario });
-        }
+      const groqMessages = [
+        { role: "system", content: `You are an encouraging English conversation partner named Aura in a cockpit-like bilingual console.
+The user is chatting with you in this context: "${targetScenario}".
+Your goal is to sustain a natural, immersive, and helpful conversation.
 
-        const groqMessages = [
-          { role: "system", content: `You are an encouraging English conversation partner.
+Analyze the user's very last message for grammatical errors, spelling mistakes, or awkward phrasing, and provide a polite improvement or tip in Spanish. If the message has no errors and is perfectly natural, set isCorrect to true.
+
+${customSystemInstruction && customSystemInstruction.trim().length > 0 ? `[INSTRUCCIONES ADICIONALES]: ${customSystemInstruction}` : ""}
+${customAppMasterInfo && customAppMasterInfo.trim().length > 0 ? `[FICHA TECNICA]: ${customAppMasterInfo}` : ""}
+
 Format your final output as a JSON object matching this schema exactly:
 {
   "reply": "string (conversational English reply)",
@@ -1743,20 +1733,57 @@ Format your final output as a JSON object matching this schema exactly:
   },
   "suggestedResponses": ["string", "string", "string"]
 }` },
-          ...formattedContents
-        ];
+        ...formattedContents
+      ];
 
+      try {
+        const chatCompletion = await groq.chat.completions.create({
+          messages: groqMessages,
+          model: "llama-3.3-70b-versatile",
+          response_format: { type: "json_object" }
+        });
+
+        const responseText = chatCompletion.choices[0]?.message?.content || "{}";
+        return res.json(JSON.parse(responseText.trim()));
+      } catch (groqError: any) {
+        console.warn("SafeZone Chat Groq failed, trying Gemini fallback:", groqError.message || groqError);
+
+        // FALLBACK: Gemini (may fail with PERMISSION_DENIED)
         try {
-          const chatCompletion = await groq.chat.completions.create({
-            messages: groqMessages,
-            model: "llama-3.3-70b-versatile",
-            response_format: { type: "json_object" }
+          const response = await ai.models.generateContent({
+            model: "gemini-3.5-flash",
+            contents: systemInstruction,
+            config: {
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  reply: { type: Type.STRING },
+                  evaluation: {
+                    type: Type.OBJECT,
+                    properties: {
+                      isCorrect: { type: Type.BOOLEAN },
+                      correctedText: { type: Type.STRING },
+                      detectedErrors: { type: Type.STRING },
+                      explanation: { type: Type.STRING },
+                      correctedTextTranslation: { type: Type.STRING }
+                    },
+                    required: ["isCorrect", "correctedText", "detectedErrors", "explanation", "correctedTextTranslation"]
+                  },
+                  suggestedResponses: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING }
+                  }
+                },
+                required: ["reply", "evaluation", "suggestedResponses"]
+              }
+            }
           });
 
-          const responseText = chatCompletion.choices[0]?.message?.content || "{}";
+          const responseText = response.text || "{}";
           return res.json(JSON.parse(responseText.trim()));
-        } catch (groqError: any) {
-          console.log("SafeZone Chat API Groq failed too, running offline fallback analyzer:", groqError.message || groqError);
+        } catch (geminiError: any) {
+          console.log("SafeZone Chat Gemini also failed, running offline fallback:", geminiError.message || geminiError);
           const localFallback = getFallbackChatResponse(messages || [], targetScenario);
           return res.json(localFallback);
         }

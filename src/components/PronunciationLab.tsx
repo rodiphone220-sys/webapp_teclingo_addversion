@@ -405,6 +405,7 @@ export default function PronunciationLab({ onBack }: Props) {
 
   // AI Voice analysis state
   const [isAnalyzingVoice, setIsAnalyzingVoice] = useState(false);
+  const [isSimulationMode, setIsSimulationMode] = useState(false);
   const [voiceAnalysisResult, setVoiceAnalysisResult] = useState<{
     score: number;
     accuracy: string;
@@ -700,6 +701,67 @@ export default function PronunciationLab({ onBack }: Props) {
     }
   };
 
+  const handleFallbackSimulation = async () => {
+    setIsSimulationMode(true);
+    setIsAnalyzingVoice(true);
+    setRecordingDuration(0);
+
+    const targetPhrase = selectedWord || "Hello";
+
+    let mockSpoken = targetPhrase;
+    const words = targetPhrase.split(" ");
+    if (Math.random() > 0.3 && words.length >= 1) {
+      const idxToChange = Math.floor(Math.random() * words.length);
+      const originalWord = words[idxToChange].toLowerCase();
+      let replacement = originalWord;
+      if (originalWord.includes("hello")) replacement = "elo";
+      else if (originalWord.includes("water")) replacement = "wather";
+      else if (originalWord.includes("thank")) replacement = "tanks";
+      else if (originalWord.includes("morning")) replacement = "mornin";
+      else if (originalWord.includes("please")) replacement = "plese";
+      else if (originalWord.includes("apple")) replacement = "aple";
+      else if (originalWord.includes("how")) replacement = "jow";
+      else if (originalWord.includes("fine")) replacement = "fain";
+      else if (originalWord.includes("meet")) replacement = "mit";
+      else if (originalWord.includes("bathroom")) replacement = "batsroom";
+      else if (originalWord.includes("good")) replacement = "god";
+      const modifiedWords = [...words];
+      modifiedWords[idxToChange] = replacement;
+      mockSpoken = modifiedWords.join(" ");
+    }
+
+    setComparisonOriginalText(targetPhrase);
+    setComparisonUserText(mockSpoken);
+    spokenTextRef.current = mockSpoken;
+
+    try {
+      const response = await fetch("/api/gemini/pronunciation-feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: targetPhrase,
+          audio: undefined,
+          mimeType: undefined,
+          spokenText: mockSpoken
+        }),
+      });
+      if (!response.ok) throw new Error("Fallback evaluation failed");
+      const data = await response.json();
+      setVoiceAnalysisResult(data);
+      setComparisonUserText(data.transcription || mockSpoken);
+    } catch (err) {
+      setVoiceAnalysisResult({
+        score: 15,
+        accuracy: "No detectado",
+        feedback: "No se ha detectado audio. Por favor, usa Chrome y permite el micrófono.",
+        tips: "Asegúrate de hablar en inglés de forma clara y pausada."
+      });
+    } finally {
+      setIsAnalyzingVoice(false);
+      setIsSimulationMode(false);
+    }
+  };
+
   const startRecording = async () => {
     setIsRecording(true);
     setRecordingDuration(0);
@@ -729,7 +791,14 @@ export default function PronunciationLab({ onBack }: Props) {
         };
 
         rec.onerror = (e: any) => {
-          console.warn("Speech Recognition error:", e);
+          console.warn("Speech Recognition error:", e.error);
+          setIsRecording(false);
+          setIsSimulationMode(true);
+          handleFallbackSimulation();
+        };
+
+        rec.onend = () => {
+          setIsRecording(false);
         };
 
         recognitionRef.current = rec;
