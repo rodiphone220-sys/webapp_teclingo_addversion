@@ -20,12 +20,12 @@ interface Props {
 }
 
 const PRESET_PHRASES = [
-  "Schedule",
-  "Comfortable",
-  "Literally",
-  "Otorhinolaryngologist",
-  "World Wide Web",
-  "Thoroughly thoroughly throughout"
+  "Hello",
+  "Thank you",
+  "Water",
+  "Please",
+  "Good morning",
+  "Apple"
 ];
 
 // High-fidelity fallback dictionary to ensure instant visual response without API latency/failures
