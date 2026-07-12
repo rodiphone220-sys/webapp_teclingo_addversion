@@ -2831,7 +2831,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",  # Vite dev
-        "https://tu-app.vercel.app",  # Producción
+        "https://webapptecligoversioncomercial.vercel.app",  # Producción
     ],
     allow_credentials=True,
     allow_methods=["*"],
